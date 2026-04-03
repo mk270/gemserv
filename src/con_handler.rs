@@ -126,14 +126,25 @@ async fn handle_cgi(
         }
         let script_name = format!("/{}", segments.collect::<Vec<_>>().join("/"));
 
-        let meta = tokio::fs::metadata(&path).await?;
+        // Security: resolve symlinks and verify the script is within the
+        // server root (or cgipath).  This is needed because handle_cgi can
+        // now be reached without the caller having done canonicalize().
+        let canon = match path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => return Ok(false),
+        };
+        if !canon.starts_with(&con.srv.server.dir) {
+            return Ok(false);
+        }
+
+        let meta = tokio::fs::metadata(&canon).await?;
         let perm = meta.permissions();
 
         match &con.srv.server.cgipath {
             Some(c) => {
-                if path.starts_with(c) {
+                if canon.starts_with(c) {
                     if perm.mode() & 0o0111 == 0o0111 {
-                        cgi::cgi(con, path, url, script_name, path_info).await?;
+                        cgi::cgi(con, canon, url, script_name, path_info).await?;
                         return Ok(true);
                     } else {
                         logger::logger(con.peer_addr, Status::CGIError, request);
@@ -144,7 +155,7 @@ async fn handle_cgi(
             }
             None => {
                 if meta.is_file() && perm.mode() & 0o0111 == 0o0111 {
-                    cgi::cgi(con, path, url, script_name, path_info).await?;
+                    cgi::cgi(con, canon, url, script_name, path_info).await?;
                     return Ok(true);
                 }
             }
@@ -275,6 +286,14 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
             }
         },
         Err(_) => {
+            // Path doesn't exist on disk. Before NotFound-ing, try CGI path
+            // walking — the URL may address a path *beneath* a CGI script
+            // (e.g. /cgi-bin/app/extra/path).
+            #[cfg(feature = "cgi")]
+            if handle_cgi(&mut con, url.as_str(), &url, &path).await? {
+                return Ok(());
+            }
+
             logger::logger(con.peer_addr, Status::NotFound, url.as_str());
             con.send_status(Status::NotFound, None).await?;
             return Ok(());
