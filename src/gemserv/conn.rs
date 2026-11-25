@@ -54,6 +54,17 @@ impl Connection {
         Ok(())
     }
 
+    // send_raw followed by a TLS shutdown, so that close_notify is sent.
+    // A failed shutdown is ignored: the client may already have gone.
+    pub async fn send_all(&mut self, body: &[u8]) -> Result<(), io::Error> {
+        self.send_raw(body).await?;
+        let _ = futures_util::future::poll_fn(|ctx| {
+            std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)
+        })
+        .await;
+        Ok(())
+    }
+
     pub async fn send_stream<S: AsyncRead + Unpin>(
         &mut self,
         reader: &mut S,

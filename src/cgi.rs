@@ -147,7 +147,7 @@ pub async fn cgi(
         return Ok(());
     }
 
-    con.send_raw(&cmd).await?;
+    con.send_all(&cmd).await?;
     Ok(())
 }
 
@@ -200,6 +200,6 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection) -> Resul
         return Ok(());
     }
 
-    con.send_raw(req.as_bytes()).await?;
+    con.send_all(req.as_bytes()).await?;
     Ok(())
 }

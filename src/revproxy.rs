@@ -51,7 +51,7 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
     let mut buf = vec![];
     stream.read_to_end(&mut buf).await?;
     // let req = String::from_utf8(buf[..].to_vec()).unwrap();
-    con.send_raw(&buf).await?;
+    con.send_all(&buf).await?;
     Ok(())
 }
 
